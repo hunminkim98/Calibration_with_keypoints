@@ -98,7 +98,46 @@ def extract_high_confidence_keypoints(cam_dirs, confidence_threshold):
     return high_confidence_keypoints
 
 
-# cam_dirs = [r"C:\Users\5W555A\Desktop\Calibration\R_key_calib\json1", r"C:\Users\5W555A\Desktop\Calibration\R_key_calib\json2", r"C:\Users\5W555A\Desktop\Calibration\R_key_calib\json3", r"C:\Users\5W555A\Desktop\Calibration\R_key_calib\json4"]
-# confidence_threshold = 0.8
-# high_confidence_keypoints = extract_high_confidence_keypoints(cam_dirs, confidence_threshold)
-# print(f"sum of all keypoints: {sum(len(kp) for kp in high_confidence_keypoints)}")
+def extract_paired_nose_keypoints_with_reference(ref_cam_dir, other_cam_dirs, confidence_threshold):
+    """
+    Extracts paired nose keypoints (x, y) with reference camera and each of the other cameras.
+
+    Args:
+    - ref_cam_dir: Directory containing JSON files for the reference camera.
+    - other_cam_dirs: List of directories containing JSON files for other cameras.
+    - confidence_threshold: Confidence value threshold for keypoints.
+
+    Returns:
+    - all_paired_nose_keypoints: A list containing paired nose keypoints for each camera pair.
+    """
+    all_paired_nose_keypoints = []
+
+    # Load and sort JSON files from the reference camera directory
+    ref_cam_files = sorted([os.path.join(ref_cam_dir, f) for f in os.listdir(ref_cam_dir) if f.endswith('.json')])
+
+    for cam_dir in other_cam_dirs:
+        # Load and sort JSON files from the current camera directory
+        cam_files = sorted([os.path.join(cam_dir, f) for f in os.listdir(cam_dir) if f.endswith('.json')])
+
+        paired_nose_keypoints_list = []
+        for ref_file, cam_file in zip(ref_cam_files, cam_files):
+            with open(ref_file, 'r') as file1, open(cam_file, 'r') as file2:
+                ref_data = json.load(file1)
+                cam_data = json.load(file2)
+
+                if ref_data['people'] and cam_data['people']:
+                    ref_keypoints = ref_data['people'][0]['pose_keypoints_2d']
+                    cam_keypoints = cam_data['people'][0]['pose_keypoints_2d']
+
+                    # Extract nose keypoint (index 0) with confidence
+                    ref_nose_keypoint_conf = (ref_keypoints[0], ref_keypoints[1], ref_keypoints[2])
+                    cam_nose_keypoint_conf = (cam_keypoints[0], cam_keypoints[1], cam_keypoints[2])
+
+                    # Filter nose keypoint based on confidence threshold and pair them
+                    if ref_nose_keypoint_conf[2] >= confidence_threshold and cam_nose_keypoint_conf[2] >= confidence_threshold:
+                        paired_nose_keypoint = ((ref_nose_keypoint_conf[0], ref_nose_keypoint_conf[1]), (cam_nose_keypoint_conf[0], cam_nose_keypoint_conf[1]))
+                        paired_nose_keypoints_list.append(paired_nose_keypoint)
+
+        all_paired_nose_keypoints.append(paired_nose_keypoints_list)
+
+    return all_paired_nose_keypoints
