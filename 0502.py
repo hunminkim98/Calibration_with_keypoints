@@ -133,15 +133,18 @@ camera1_keypoints_pairs, other_cameras_keypoints = extract_individual_camera_key
 
 def compute_fundamental_matrix(paired_keypoints_list):
     """
-    Compute the fundamental matrix from paired keypoints.
+    Compute the fundamental matrix from paired keypoints and return inlier keypoints.
 
     This function takes a list of paired keypoints and computes the fundamental matrix using the RANSAC algorithm.
+    It also filters out outliers based on the RANSAC result.
 
     Args:
         paired_keypoints_list (list): A list of tuples, where each tuple contains two arrays of keypoints, one for each image.
 
     Returns:
         numpy.ndarray: The computed fundamental matrix.
+        numpy.ndarray: Points from the first image that are considered inliers.
+        numpy.ndarray: Points from the second image that are considered inliers.
     """
     points1, points2 = unpack_keypoints(paired_keypoints_list)
     
@@ -151,8 +154,11 @@ def compute_fundamental_matrix(paired_keypoints_list):
     # Compute the fundamental matrix using RANSAC
     F, mask = cv2.findFundamentalMat(points1, points2, cv2.FM_RANSAC)
 
-    return F
+    # Filter points based on the mask
+    inliers1 = points1[mask.ravel() == 1]
+    inliers2 = points2[mask.ravel() == 1]
 
+    return F, inliers1, inliers2
 
 
 def compute_essential_matrix(F, K1, K2):
@@ -171,36 +177,58 @@ def compute_essential_matrix(F, K1, K2):
     #print(f"Essential matrix: {E}")
     return E
 
-
-def decompose_essential_matrix(E):
+def recover_pose_from_essential_matrix(E, points1_inliers, points2_inliers, K):
     """
-    Decomposes the essential matrix into rotation and translation components.
+    Recover the camera pose from the Essential matrix using inliers.
 
     Parameters:
-    E (numpy.ndarray): The essential matrix.
+    E (numpy.ndarray): The Essential matrix.
+    points1_inliers (numpy.ndarray): The inlier points from the first image.
+    points2_inliers (numpy.ndarray): The inlier points from the second image.
+    K (numpy.ndarray): The camera intrinsic matrix (assuming the same for both cameras).
 
     Returns:
-    list: A list of tuples, where each tuple contains a possible combination of rotation and translation matrices.
+    numpy.ndarray, numpy.ndarray: The rotation matrix (R) and the translation vector (t).
     """
-    U, _, Vt = np.linalg.svd(E)
-    W = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
+    # Ensure points are in the correct shape and type
+    points1_inliers = points1_inliers.astype(np.float32)
+    points2_inliers = points2_inliers.astype(np.float32)
 
-    # Ensure the rotation matrix is right-handed
-    if np.linalg.det(U @ Vt) < 0:
-        U[:, -1] *= -1
+    # Recovering the pose
+    _, R, t, mask = cv2.recoverPose(E, points1_inliers, points2_inliers, K)
 
-    # Two possible rotations
-    R1 = U @ W @ Vt
-    R2 = U @ W.T @ Vt
+    return R, t, mask
 
-    # Two possible translations
-    t1 = U[:, 2]
-    t2 = -U[:, 2]
 
-    # Four possible combinations of R and t
-    combinations = [(R1, t1), (R1, t2), (R2, t1), (R2, t2)]
+# def decompose_essential_matrix(E):
+#     """
+#     Decomposes the essential matrix into rotation and translation components.
 
-    return combinations
+#     Parameters:
+#     E (numpy.ndarray): The essential matrix.
+
+#     Returns:
+#     list: A list of tuples, where each tuple contains a possible combination of rotation and translation matrices.
+#     """
+#     U, _, Vt = np.linalg.svd(E)
+#     W = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
+
+#     # Ensure the rotation matrix is right-handed
+#     if np.linalg.det(U @ Vt) < 0:
+#         U[:, -1] *= -1
+
+#     # Two possible rotations
+#     R1 = U @ W @ Vt
+#     R2 = U @ W.T @ Vt
+
+#     # Two possible translations
+#     t1 = U[:, 2]
+#     t2 = -U[:, 2]
+
+#     # Four possible combinations of R and t
+#     combinations = [(R1, t1), (R1, t2), (R2, t1), (R2, t2)]
+
+#     return combinations
 
 
 def cam_create_projection_matrix(K, R, t):
@@ -251,27 +279,27 @@ def triangulate_points(paired_keypoints_list, P1, P2):
     return points_3d
 
 # Triangulate the points using all combinations of R and t
-def triangulate_all_combinations(paired_keypoints_list, K, K1, combinations):
-    """
-    Triangulates 3D points from all combinations of camera poses.
+# def triangulate_all_combinations(paired_keypoints_list, K, K1, combinations):
+#     """
+#     Triangulates 3D points from all combinations of camera poses.
 
-    Args:
-        paired_keypoints_list (list): List of paired keypoints.
-        K (array): Camera calibration matrix for camera 1.
-        K1 (array): Camera calibration matrix for camera 2.
-        combinations (list): List of tuples containing rotation matrix R and translation vector t.
+#     Args:
+#         paired_keypoints_list (list): List of paired keypoints.
+#         K (array): Camera calibration matrix for camera 1.
+#         K1 (array): Camera calibration matrix for camera 2.
+#         combinations (list): List of tuples containing rotation matrix R and translation vector t.
 
-    Returns:
-        list: List of 3D points obtained from triangulation for each combination.
-    """
-    all_points_3d = []
+#     Returns:
+#         list: List of 3D points obtained from triangulation for each combination.
+#     """
+#     all_points_3d = []
 
-    for R, t in combinations:
-        P1 = cam_create_projection_matrix(K, np.eye(3), np.zeros((3, 1)))
-        P2 = cam_create_projection_matrix(K1, R, t)
-        points_3d = triangulate_points(paired_keypoints_list, P1, P2)
-        all_points_3d.append(points_3d)
-    return all_points_3d
+#     for R, t in combinations:
+#         P1 = cam_create_projection_matrix(K, np.eye(3), np.zeros((3, 1)))
+#         P2 = cam_create_projection_matrix(K1, R, t)
+#         points_3d = triangulate_points(paired_keypoints_list, P1, P2)
+#         all_points_3d.append(points_3d)
+#     return all_points_3d
 
 # Triangulation for multi-camera system
 def weighted_triangulation(P_all,x_all,y_all,likelihood_all):
@@ -338,31 +366,31 @@ def plot_3d_points(points_3d):
 ###
 
 ## New version ##
-def find_valid_rt_combination(all_points_3d, combinations):
-    for i, (R, t) in enumerate(combinations):
-        # make the transformation matrix
-        transformation_matrix = np.hstack((R, t.reshape(-1, 1))) # transformation matrix
-        transformation_matrix = np.vstack((transformation_matrix, [0, 0, 0, 1])) # homogeneous transformation matrix
+# def find_valid_rt_combination(all_points_3d, combinations):
+#     for i, (R, t) in enumerate(combinations):
+#         # make the transformation matrix
+#         transformation_matrix = np.hstack((R, t.reshape(-1, 1))) # transformation matrix
+#         transformation_matrix = np.vstack((transformation_matrix, [0, 0, 0, 1])) # homogeneous transformation matrix
 
-        valid = True
-        for frame_points_3d in all_points_3d[i]:
-            for point_3d in frame_points_3d:
-                # world to camera transformation
-                point_3d_homogeneous = np.append(point_3d, 1)  # Convert to homogeneous coordinates
-                point_camera = transformation_matrix.dot(point_3d_homogeneous) # Transform the 3D point to the camera coordinate system
-                Xc, Yc, Zc = point_camera[:3]
+#         valid = True
+#         for frame_points_3d in all_points_3d[i]:
+#             for point_3d in frame_points_3d:
+#                 # world to camera transformation
+#                 point_3d_homogeneous = np.append(point_3d, 1)  # Convert to homogeneous coordinates
+#                 point_camera = transformation_matrix.dot(point_3d_homogeneous) # Transform the 3D point to the camera coordinate system
+#                 Xc, Yc, Zc = point_camera[:3]
 
-                # Check if all 3D points have positive depth
-                if Zc <= 0:
-                    valid = False
-                    break
-            if not valid:
-                break
+#                 # Check if all 3D points have positive depth
+#                 if Zc <= 0:
+#                     valid = False
+#                     break
+#             if not valid:
+#                 break
         
-        if valid:
-            return R, t
-    print("No valid combination found.")
-    return None, None
+#         if valid:
+#             return R, t
+#     print("No valid combination found.")
+#     return None, None
 
 ## Old version ##
 # def find_valid_rt_combination(all_points_3d):
@@ -529,7 +557,9 @@ for j, K in enumerate(Ks):
     print(f"- Total keypoints extracted: {sum(len(frame_keypoints) for frame_keypoints in paired_keypoints)}")
     
     # Compute the fundamental matrix
-    F = compute_fundamental_matrix(paired_keypoints)
+    F, inlier1, inlier2= compute_fundamental_matrix(paired_keypoints)
+    print(f"- Total inliers: {len(inlier1)}")
+    print(f"- Total outliers: {len(inlier2)}")
     # print(f"Camera {j+1} relative to Camera 1: Fundamental matrix: {F}")
 
     # Store the fundamental matrix
@@ -539,17 +569,21 @@ for j, K in enumerate(Ks):
     E = compute_essential_matrix(F, K1, K)
     # print(f"Camera {j+1} relative to Camera 1: Essential matrix: {E}")
 
-    # Decompose the essential matrix
-    combinations = decompose_essential_matrix(E)
-    # print(f"combinations : {combinations}")
-
-    # Triangulate the points using all combinations of R and t
-    all_points_3d = triangulate_all_combinations(paired_keypoints, K, K1, combinations)
-    print(f"Camera {j+1} relative to Camera 1: Total 3D points: {sum(len(frame_points_3d) for frame_points_3d in all_points_3d)}")
-
-    # Find the valid combination of R and t
-    R, t = find_valid_rt_combination(all_points_3d, combinations)
+    R, t, mask = recover_pose_from_essential_matrix(E, inlier1, inlier2, K1) #  assuming all cameras have a same K
     print(f"Camera {j+1} relative to Camera 1: R = {R}, t = {t}")
+    print(f"Camera {j+1} relative to Camera 1: Mask = {mask}")
+
+    # # Decompose the essential matrix
+    # combinations = decompose_essential_matrix(E)
+    # # print(f"combinations : {combinations}")
+
+    # # Triangulate the points using all combinations of R and t
+    # all_points_3d = triangulate_all_combinations(paired_keypoints, K, K1, combinations)
+    # print(f"Camera {j+1} relative to Camera 1: Total 3D points: {sum(len(frame_points_3d) for frame_points_3d in all_points_3d)}")
+
+    # # Find the valid combination of R and t
+    # R, t = find_valid_rt_combination(all_points_3d, combinations)
+    # print(f"Camera {j+1} relative to Camera 1: R = {R}, t = {t}")
 
     # Rodrigues rotation vector
     R_rod, _ = cv2.Rodrigues(R)

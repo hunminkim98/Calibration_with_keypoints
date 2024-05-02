@@ -6,7 +6,6 @@ import random
 import os
 import json
 import pprint
-import toml
 from keypoints_confidence_multi import extract_paired_keypoints_with_reference
 from scipy.optimize import least_squares
 from scipy.optimize import minimize
@@ -45,7 +44,7 @@ Ks = [K1, K2, K3, K4]
 # camera directories
 ref_cam_dir = r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json1' # reference camera directory
 other_cam_dirs = [r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json2',r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json3', r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json4'] # other camera directories
-confidence_threshold = 0.85 # confidence threshold for keypoints pair extraction
+confidence_threshold = 0.72 # confidence threshold for keypoints pair extraction
 
 # Call the function to extract paired keypoints
 paired_keypoints_list = extract_paired_keypoints_with_reference(ref_cam_dir, other_cam_dirs, confidence_threshold)
@@ -481,7 +480,7 @@ def compute_intrinsic_optimization_loss(x, points_3d, keypoints_detected, R, t):
         mean_loss = total_loss / valid_keypoints_count
     else:
         mean_loss = 0
-    # print(f"mear_loss of intrinsic : {mean_loss}")
+    print(f"mear_loss of intrinsic : {mean_loss}")
     return mean_loss
 
 def optimize_intrinsic_parameters(points_3d, keypoints_detected, K, R, t):
@@ -577,8 +576,8 @@ for camera_pair, F_matrix in fundamental_matrices.items():
 
 all_best_results = {}
 # how many times to run the optimization
-outer_iterations = 1
-intrinsic_iterations = 1
+outer_iterations = 2
+intrinsic_iterations = 2
 
 # dictionary to store the optimization results
 optimization_results = {}
@@ -749,7 +748,7 @@ def compute_extrinsic_optimization_loss(x, ext_K, points_3d, points_2d, ext_R, e
     else:
         mean_loss = 0
 
-    # print(f"Mean loss of extrinsic : {mean_loss}")
+    print(f"Mean loss of extrinsic : {mean_loss}")
     return mean_loss
 
 
@@ -774,7 +773,7 @@ def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext
     print(f"Initial x0: {x0}")
 
     # Optimize the intrinsic parameters using the least squares method
-    result = least_squares(compute_extrinsic_optimization_loss, x0, args=(ext_K, points_3d, other_cameras_keypoints, ext_R, ext_t), verbose=1, method='trf', diff_step=1e-8 , ftol=1e-12, max_nfev=150, xtol=1e-12, gtol=1e-12, x_scale='jac', loss='huber')
+    result = least_squares(compute_extrinsic_optimization_loss, x0, args=(ext_K, points_3d, other_cameras_keypoints, ext_R, ext_t), verbose=1, method='trf', diff_step=1e-8 , ftol=1e-12, max_nfev=50, xtol=1e-12, gtol=1e-12, x_scale='jac', loss='huber')
 
     optimized_t = result.x # optimized t vector
     print(f"Optimized t: {optimized_t}")
@@ -789,34 +788,46 @@ def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext
 ####### Multi-camera calibration #######
 ########################################
 
+# Extract keypoints for each camera pair using Camera 1 as reference
+# camera directories
+ref_cam_dir_multi = r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json2' # reference camera directory
+other_cam_dirs_multi = [r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json3',r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\json4'] # other camera directories
+confidence_threshold_multi = 0.72 # confidence threshold for keypoints pair extraction
+
+# Call the function to extract paired keypoints
+multi_paired_keypoints_list = extract_paired_keypoints_with_reference(ref_cam_dir_multi, other_cam_dirs_multi, confidence_threshold_multi)
+camera1_keypoints_pairs_multi, other_cameras_keypoints_multi = extract_individual_camera_keypoints(multi_paired_keypoints_list)
+
 N = 20 # how many times to run the optimization
 
 for i, K in enumerate(Ks):
-    if i == 0:  # skip the reference camera
+    if i == 0 or i == 1:  # skip the reference camera
         continue
 
     camera_key = f"Camera1_1-{i+1}" # e.g., "Camera1_1-2", "Camera1_1-3", etc.
     print(f"calibrating camera {i+1}...")
 
     # import the best results for each camera pair
-    ext_K = all_best_results[f"Camera0_{i}"]['K2'] 
+    ref_K = all_best_results[f"Camera0_1"]['K2'] 
+    ref_R = all_best_results[f"Camera0_1"]['R'] # fixed R matrix
+    ref_t = all_best_results[f"Camera0_1"]['t']
+
+    ext_K = all_best_results[f"Camera0_{i}"]['K2']
     ext_R = all_best_results[f"Camera0_{i}"]['R'] # fixed R matrix
     ext_t = all_best_results[f"Camera0_{i}"]['t']
-    ref_t = np.array([[1/np.sqrt(3)], [1/np.sqrt(3)], [1/np.sqrt(3)]]) # reference t vector |T| = 1
 
 
     # projection matrix
-    P1 = cam_create_projection_matrix(Ks[0], np.eye(3), ref_t)
+    P1 = cam_create_projection_matrix(ref_K, ref_R, ref_t)
     P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t)
 
     # triangulate points
-    points_3d = triangulate_points(paired_keypoints_list[i-1], P1, P2) # initial 3D points
-    before_optimization_error = compute_reprojection_error(paired_keypoints_list[i-1], P1, P2)
+    points_3d = triangulate_points(multi_paired_keypoints_list[i-2], P1, P2) # initial 3D points
+    before_optimization_error = compute_reprojection_error(multi_paired_keypoints_list[i-2], P1, P2)
     print(f"camera {i+1} before optimization error: {before_optimization_error}")
 
     # keypoints for optimization
-    ref_keypoints_detected = camera1_keypoints_pairs[camera_key]
-    other_keypoints_detected = other_cameras_keypoints[i+1] # use the keypoints for the other camera
+    other_keypoints_detected = other_cameras_keypoints[i] # use the keypoints for the other camera
 
     # Entrinsic and intrinsic parameter joint optimization
     for n in range(N):
@@ -828,19 +839,19 @@ for i, K in enumerate(Ks):
         print(f"{n + 1}th optimized t vector: {ext_t}")
 
         N_P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t) # update projection matrix
-        ex_reprojection_error = compute_reprojection_error(paired_keypoints_list[i-1], P1, N_P2) # calculate the mean reprojection error
+        ex_reprojection_error = compute_reprojection_error(multi_paired_keypoints_list[i-2], P1, N_P2) # calculate the mean reprojection error
         print(f"{n + 1}th error in extrinsic optimization = {ex_reprojection_error}")
 
         # intrinsic parameter optimization
-        points_3d = triangulate_points(paired_keypoints_list[i-1], P1, N_P2) # update 3D points after extrinsic optimization
+        points_3d = triangulate_points(multi_paired_keypoints_list[i-2], P1, N_P2) # update 3D points after extrinsic optimization
         # ext_K_optimized = optimize_intrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t) # optimize intrinsic parameters
         # ext_K = ext_K_optimized # update intrinsic parameters
         # print(f"{n + 1}th optimized K matrix: {ext_K}")
 
         # N_P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t) # update projection matrix
-        # in_reprojection_error = compute_reprojection_error(paired_keypoints_list[i-1], P1, N_P2) # calculate the mean reprojection error
+        # in_reprojection_error = compute_reprojection_error(multi_paired_keypoints_list[i-2], P1, N_P2) # calculate the mean reprojection error
         # print(f"{n + 1}th error in intrinsic optimization = {in_reprojection_error}")
-        # points_3d = triangulate_points(paired_keypoints_list[i-1], P1, N_P2) # update 3D points after intrinsic optimization
+        # points_3d = triangulate_points(multi_paired_keypoints_list[i-2], P1, N_P2) # update 3D points after intrinsic optimization
 
     # save result after optimization
     all_best_results[f"Camera0_{i}"]['t'] = ext_t
@@ -856,33 +867,3 @@ for pair_key, results in all_best_results.items():
     print(f"- K2: {results['K2']}") # optimized intrinsic paramters
     print(f" rod R: {results['R']}") # optimized extrinsic paramters
     print(f"- t: {results['t']}") # optimized extrinsic paramters
-
-
-current_dir = os.path.dirname(os.path.abspath(__file__))
-calib_file = os.path.join(current_dir, "calib.toml")
-calib_data = {}
-
-for i in range(len(Ks)):
-    camera_key = f"cam_{i+1:02d}"
-    
-    if i == 0:  # 참조 카메라
-        rotation = np.array([0, 0, 0], dtype=float).tolist()
-        translation = np.array([0, 0, 0], dtype=float).tolist()
-        matrix = Ks[0]
-    else:
-        rotation = all_best_results[f"Camera0_{i}"]['R'].flatten().tolist()
-        translation = all_best_results[f"Camera0_{i}"]['t'].flatten().tolist()
-        matrix = all_best_results[f"Camera0_{i}"]['K2']
-    
-    calib_data[camera_key] = {
-        "name": camera_key,
-        "size": [3840.0, 2160.0],
-        "matrix": matrix,  # 이 부분을 수정하여 이미 리스트인 행렬을 그대로 사용
-        "distortions": [0.0, 0.0, 0.0, 0.0],
-        "rotation": rotation,
-        "translation": translation,
-        "fisheye": False
-    }
-
-with open(calib_file, "w") as f:
-    toml.dump(calib_data, f)
