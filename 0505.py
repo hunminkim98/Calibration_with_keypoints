@@ -10,6 +10,7 @@ import toml
 from keypoints_confidence_multi import extract_paired_keypoints_with_reference
 from scipy.optimize import least_squares
 from scipy.optimize import minimize
+from write_to_toml import write_to_toml
 
 
 # Constants for initial intrinsic matrix ( Factory setting in the paper but im using calibrate app in Matlab or OpenCV )
@@ -45,7 +46,7 @@ Ks = [K1, K2, K3, K4]
 # camera directories
 ref_cam_dir = r'D:\calibration\Calibration_with_keypoints\json1' # reference camera directory
 other_cam_dirs = [r'D:\calibration\Calibration_with_keypoints\json2', r'D:\calibration\Calibration_with_keypoints\json3', r'D:\calibration\Calibration_with_keypoints\json4'] # other camera directories
-confidence_threshold = 0.8 # confidence threshold for keypoints pair extraction
+confidence_threshold = 0.55 # confidence threshold for keypoints pair extraction
 
 # Call the function to extract paired keypoints
 paired_keypoints_list = extract_paired_keypoints_with_reference(ref_cam_dir, other_cam_dirs, confidence_threshold)
@@ -335,7 +336,7 @@ def optimize_intrinsic_parameters(points_3d, keypoints_detected, K, R, t):
     bounds = ([0, 0, 0, 0], [np.inf, np.inf, np.inf, np.inf])
 
     # Optimize the intrinsic parameters using the least squares method
-    result = least_squares(compute_intrinsic_optimization_loss, x0, args=(points_3d, keypoints_detected, R, t), bounds=bounds, x_scale='jac', verbose=1, method='trf', loss= 'huber', diff_step=1e-8, tr_solver='lsmr', ftol=1e-12, max_nfev=50, xtol=1e-12, gtol=1e-12)
+    result = least_squares(compute_intrinsic_optimization_loss, x0, args=(points_3d, keypoints_detected, R, t), bounds=bounds, verbose=1, method='trf', diff_step=1e-8, ftol=1e-4, max_nfev=50, xtol=1e-4, gtol=1e-4)
 
     # Create the optimized intrinsic matrix
     K_optimized = np.array([[result.x[0], 0, result.x[2]], [0, result.x[1], result.x[3]], [0, 0, 1]])
@@ -365,7 +366,7 @@ def create_paired_inlier(inliers1, inliers2):
 print("Starting intrinsic jointly optimization...")
 # Initialize global variables
 outer_iterations = 1
-intrinsic_iterations = 1
+intrinsic_iterations = 5
 optimization_results = {}
 all_best_results = {}
 
@@ -548,7 +549,7 @@ def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext
     print(f"Initial x0: {x0}")
 
     # Optimize the intrinsic parameters using the least squares method
-    result = least_squares(compute_extrinsic_optimization_loss, x0, args=(ext_K, points_3d, other_cameras_keypoints, ext_R), verbose=1, method='trf', diff_step=1e-8 , ftol=1e-12, max_nfev=150, xtol=1e-12, gtol=1e-12, x_scale='jac', loss='huber')
+    result = least_squares(compute_extrinsic_optimization_loss, x0, args=(ext_K, points_3d, other_cameras_keypoints, ext_R), verbose=1, method='trf', diff_step=1e-8 , ftol=1e-4, max_nfev=150, xtol=1e-4, gtol=1e-4)
 
     optimized_t = result.x # optimized t vector
     print(f"Optimized t: {optimized_t}")
@@ -563,7 +564,7 @@ def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext
 ####### Multi-camera calibration #######
 ########################################
 
-N = 20 # how many times to run the optimization
+N = 30 # how many times to run the optimization
 
 for i, K in enumerate(Ks):
     if i == 0:  # skip the reference camera
@@ -580,7 +581,7 @@ for i, K in enumerate(Ks):
     ext_K = all_best_results[pair_key]['K2'] 
     ext_R = all_best_results[pair_key]['R']
     ext_t = all_best_results[pair_key]['t']
-    ref_t = np.array([[1/np.sqrt(3)], [1/np.sqrt(3)], [1/np.sqrt(3)]]) # reference t vector |T| = 1
+    ref_t = np.array([[0], [0], [0]]) # reference t vector |T| = 1
 
 
     # projection matrix
@@ -621,10 +622,11 @@ for i, K in enumerate(Ks):
     # save result after optimization
     all_best_results[pair_key]['t'] = ext_t
     all_best_results[pair_key]['K2'] = ext_K
+    all_best_results[pair_key]['R'] = ext_R
 
     # ext_R matrix to rod vector
     ext_R_rod, _ = cv2.Rodrigues(ext_R)
-    all_best_results[pair_key]['R'] = ext_R_rod
+    print(f"optimized R rod: {ext_R_rod}")
 
 # print optimized results
 for pair_key, results in all_best_results.items():
@@ -634,32 +636,5 @@ for pair_key, results in all_best_results.items():
     print(f"- t: {results['t']}") # optimized extrinsic paramters
 
 
-# current_dir = os.path.dirname(os.path.abspath(__file__))
-# calib_file = os.path.join(current_dir, "calib.toml")
-# calib_data = {}
-
-# for i in range(len(Ks)):
-#     camera_key = f"cam_{i+1:02d}"
-#     pair_key = (1, i+1)
-    
-#     if i == 0:  # 참조 카메라
-#         rotation = np.array([0, 0, 0], dtype=float).tolist()
-#         translation = np.array([0, 0, 0], dtype=float).tolist()
-#         matrix = Ks[0]
-#     else:
-#         rotation = all_best_results[pair_key]['R'].flatten().tolist()
-#         translation = all_best_results[pair_key]['t'].flatten().tolist()
-#         matrix = all_best_results[pair_key]['K2']
-    
-#     calib_data[camera_key] = {
-#         "name": camera_key,
-#         "size": [3840.0, 2160.0],
-#         "matrix": matrix,  # 이 부분을 수정하여 이미 리스트인 행렬을 그대로 사용
-#         "distortions": [0.0, 0.0, 0.0, 0.0],
-#         "rotation": rotation,
-#         "translation": translation,
-#         "fisheye": False
-#     }
-
-# with open(calib_file, "w") as f:
-#     toml.dump(calib_data, f)
+# Write the results to a TOML file
+write_to_toml(all_best_results)
