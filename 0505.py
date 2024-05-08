@@ -16,17 +16,33 @@ from write_to_toml import write_to_toml
 # Constants for initial intrinsic matrix ( Factory setting in the paper but im using calibrate app in Matlab or OpenCV )
 ## It would be changed input data from Pose2Sim intrinsic calibration
 # principal point (u0, v0) is the image center
-image_size = (2704, 2028)  # image size
+image_size = (3840.0, 2160.0)  # image size
 u0 = image_size[0] / 2  # principal point u0
 v0 = image_size[1] / 2  # principal point v0
 
-K1 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
+K1 = np.array([
+    [ 1824.6097978600892, 0.0, 1919.5],
+    [ 0.0, 1826.6675222017589, 1079.5],
+    [ 0.0, 0.0, 1.0]
+])
 
-K2 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
+K2 = np.array([
+    [ 1824.6097978600892, 0.0, 1919.5],
+    [ 0.0, 1826.6675222017589, 1079.5],
+    [ 0.0, 0.0, 1.0]
+])
 
-K3 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
+K3 = np.array([
+    [ 1824.6097978600892, 0.0, 1919.5],
+    [ 0.0, 1826.6675222017589, 1079.5],
+    [ 0.0, 0.0, 1.0]
+])
 
-K4 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
+K4 = np.array([
+    [ 1824.6097978600892, 0.0, 1919.5],
+    [ 0.0, 1826.6675222017589, 1079.5],
+    [ 0.0, 0.0, 1.0]
+])
 
 Ks = [K1, K2, K3, K4]
 total_keypoints_for_all_camera = 0
@@ -34,8 +50,8 @@ total_keypoints_for_all_camera = 0
 ###################### Data Processing ############################
 
 # camera directories
-ref_cam_dir = r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json1' # reference camera directory
-other_cam_dirs = [r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json2', r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json3', r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json4'] # other camera directories
+ref_cam_dir = r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal_json1' # reference camera directory
+other_cam_dirs = [r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal_json2', r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal_json3', r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal_json4'] # other camera directories
 confidence_threshold = 0.8 # confidence threshold for keypoints pair extraction
 
 # Call the function to extract paired keypoints
@@ -551,7 +567,7 @@ def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext
 ####### Multi-camera calibration #######
 ########################################
 
-N = 10 # how many times to run the optimization
+N = 20 # how many times to run the optimization
 
 for i, K in enumerate(Ks):
     if i == 0 or i == 1:  # skip the reference camera
@@ -568,7 +584,7 @@ for i, K in enumerate(Ks):
     ext_K = all_best_results[pair_key]['K2'] 
     ext_R = all_best_results[pair_key]['R']
     ext_t = all_best_results[pair_key]['t']
-    ref_t = np.array([[0], [0], [0]]) # reference t vector |T| = 1
+    ref_t = np.array([[0], [0], [1]]) # reference t vector |T| = 1
 
 
     # projection matrix

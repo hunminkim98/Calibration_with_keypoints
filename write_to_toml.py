@@ -11,7 +11,7 @@ def write_to_toml(all_best_results):
     # Create camera data for reference camera
     camera_data = table()
     camera_data.add("name", f"int_cam0_img")
-    camera_data.add("size", array([2704.0, 2028.0]))
+    camera_data.add("size", array([3840.0, 2160.0]))
     camera_data.add("matrix", array(nparray_to_list(all_best_results[1, 2]['K1'])))
     camera_data.add("distortions", array([0.0, 0.0, 0.0, 0.0]))
     camera_data.add("rotation", array([0.0, 0.0, 0.0]))
@@ -29,7 +29,7 @@ def write_to_toml(all_best_results):
         
         camera_data = table()
         camera_data.add("name", f"int_cam{pair_key[-1]}_img")
-        camera_data.add("size", array([2704.0, 2028.0]))
+        camera_data.add("size", array([3840.0, 2160.0]))
         camera_data.add("matrix", array(nparray_to_list(results['K2'])))
         camera_data.add("distortions", array([0.0, 0.0, 0.0, 0.0]))
         camera_data.add("rotation", array(list(rvec.squeeze())))
