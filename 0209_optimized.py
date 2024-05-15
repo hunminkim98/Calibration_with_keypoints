@@ -14,39 +14,29 @@ from write_to_toml import write_to_toml
 start_time = time.time()
 # Constants for initial intrinsic matrix ( Factory setting in the paper but im using calibrate app in Matlab or OpenCV )
 ## It would be changed input data from Pose2Sim intrinsic calibration
-K1 = np.array([
-    [ 1824.6097978600892, 0.0, 1919.5],
-    [ 0.0, 1826.6675222017589, 1079.5],
-    [ 0.0, 0.0, 1.0]
-])
 
-K2 = np.array([
-    [ 1824.6097978600892, 0.0, 1919.5],
-    [ 0.0, 1826.6675222017589, 1079.5],
-    [ 0.0, 0.0, 1.0]
-])
+# principal point (u0, v0) is the image center
+image_size = (2704.0, 2028.0)  # image size
+u0 = image_size[0] / 2  # principal point u0
+v0 = image_size[1] / 2  # principal point v0
 
-K3 = np.array([
-    [ 1824.6097978600892, 0.0, 1919.5],
-    [ 0.0, 1826.6675222017589, 1079.5],
-    [ 0.0, 0.0, 1.0]
-])
+K1 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
 
-K4 = np.array([
-    [ 1824.6097978600892, 0.0, 1919.5],
-    [ 0.0, 1826.6675222017589, 1079.5],
-    [ 0.0, 0.0, 1.0]
-])
+K2 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
 
-Ks = [K1, K3, K4]
+K3 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
+
+K4 = np.array([[ 1285.6727845238743, 0.0, u0], [ 0.0, 1288.7572378482073, v0], [ 0.0, 0.0, 1.0]])
+
+Ks = [K1, K2, K3]
 total_keypoints_for_all_camera = 0
 
 ###################### Data Processing ############################
 
 # camera directorie
-ref_cam_dir = 'D:\calibration\Calibration_with_keypoints\json1' # reference camera directory
-other_cam_dirs = ['D:\calibration\Calibration_with_keypoints\json3','D:\calibration\Calibration_with_keypoints\json4'] # other camera directories
-confidence_threshold = 0.8 # confidence threshold for keypoints pair extraction
+ref_cam_dir = r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json1' # reference camera directory
+other_cam_dirs = [r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json2', r'C:\Users\5W555A\Desktop\Calibration\Calibration_with_keypoints\cal1_json3'] # other camera directories
+confidence_threshold = 0.7 # confidence threshold for keypoints pair extraction
 
 # Call the function to extract paired keypoints
 paired_keypoints_list = extract_paired_keypoints_with_reference(ref_cam_dir, other_cam_dirs, confidence_threshold)
@@ -172,23 +162,12 @@ def decompose_essential_matrix(E):
     Returns:
     list: A list of tuples, where each tuple contains a possible combination of rotation and translation matrices.
     """
-    U, _, Vt = np.linalg.svd(E)
-    W = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
+    # Decompose the essential matrix using OpenCV
+    R1, R2, t = cv2.decomposeEssentialMat(E)
 
-    # Ensure the rotation matrix is right-handed
-    if np.linalg.det(U @ Vt) < 0:
-        U[:, -1] *= -1
-
-    # Two possible rotations
-    R1 = U @ W @ Vt
-    R2 = U @ W.T @ Vt
-
-    # Two possible translations
-    t1 = U[:, 2]
-    t2 = -U[:, 2]
-
-    # Four possible combinations of R and t
-    combinations = [(R1, t1), (R1, t2), (R2, t1), (R2, t2)]
+    # OpenCV returns a single translation vector and two possible rotation matrices
+    # There are four possible combinations of rotation and translation:
+    combinations = [(R1, t), (R1, -t), (R2, t), (R2, -t)]
 
     return combinations
 
@@ -256,9 +235,9 @@ def triangulate_all_combinations(paired_keypoints_list, K, K1, combinations):
     """
     all_points_3d = []
     
-    P1 = cam_create_projection_matrix(K, np.eye(3), np.zeros((3, 1)))
+    P1 = cam_create_projection_matrix(K1, np.eye(3), np.zeros((3, 1)))
     for R, t in combinations:
-        P2 = cam_create_projection_matrix(K1, R, t)
+        P2 = cam_create_projection_matrix(K, R, t)
         points_3d = triangulate_points(paired_keypoints_list, P1, P2)
         all_points_3d.append(points_3d)
     return all_points_3d
@@ -500,7 +479,7 @@ def vectorize_params_for_intrinsic_loss(points_3d, keypoints_detected, R, t):
 
     return np.array(u_detected), np.array(v_detected), np.array(Xc), np.array(Yc), np.array(Zc)
 
-def compute_intrinsics_optimization_loss(x, u_detected, v_detected, Xc, Yc, Zc):
+def compute_intrinsics_optimization_loss(x, u_detected, v_detected, Xc, Yc, Zc, u0, v0):
     """
     Computes the loss for the intrinsic parameters optimization.
 
@@ -514,7 +493,7 @@ def compute_intrinsics_optimization_loss(x, u_detected, v_detected, Xc, Yc, Zc):
     Returns:
     - The mean loss for the intrinsic parameters optimization.
     """
-    f_x, f_y, u0, v0 = x  # Intrinsic parameters to optimize
+    f_x, f_y = x  # Intrinsic parameters to optimize
     dx = 1.0  # Pixel scaling factor dx (assumed to be 1 if not known)
     dy = 1.0  # Pixel scaling factor dy (assumed to be 1 if not known)
 
@@ -530,7 +509,7 @@ def compute_intrinsics_optimization_loss(x, u_detected, v_detected, Xc, Yc, Zc):
     print(f"mean_loss of intrinsic : {mean_loss}")
     return mean_loss
 
-def optimize_intrinsic_parameters(points_3d, keypoints_detected, K, R, t, tolerance_list):
+def optimize_intrinsic_parameters(points_3d, keypoints_detected, K, R, t, tolerance_list, u0, v0):
     """
     Optimizes the intrinsic parameters using the given 3D points and detected keypoints.
 
@@ -545,16 +524,14 @@ def optimize_intrinsic_parameters(points_3d, keypoints_detected, K, R, t, tolera
     - The optimized intrinsic parameters matrix.
     """
     # Create the initial guess for the intrinsic parameters
-    x0 = np.array([K[0, 0], K[1,1] ,K[0, 2], K[1, 2]])
+    x0 = np.array([K[0, 0], K[1,1]]) # optimize only the focal length
      
-    # Create the bounds for the intrinsic parameters
-    bounds = ([0, 0, 0, 0], [np.inf, np.inf, np.inf, np.inf])
     u_detected, v_detected, Xc, Yc, Zc= vectorize_params_for_intrinsic_loss(points_3d, keypoints_detected, R, t)
     # Optimize the intrinsic parameters using the least squares method
-    result = least_squares(compute_intrinsics_optimization_loss, x0, args=(u_detected, v_detected, Xc, Yc, Zc), bounds=bounds, x_scale='jac', verbose=1, method='trf', loss= 'huber', diff_step=tolerance_list['diff_step'], tr_solver='lsmr', ftol=tolerance_list['ftol'], max_nfev=tolerance_list['max_nfev'], xtol=tolerance_list['xtol'], gtol=tolerance_list['gtol'])
+    result = least_squares(compute_intrinsics_optimization_loss, x0, args=(u_detected, v_detected, Xc, Yc, Zc, u0, v0), x_scale='jac', verbose=1, method='trf', loss= 'huber', diff_step=tolerance_list['diff_step'], tr_solver='lsmr', ftol=tolerance_list['ftol'], max_nfev=tolerance_list['max_nfev'], xtol=tolerance_list['xtol'], gtol=tolerance_list['gtol'])
 
     # Create the optimized intrinsic matrix
-    K_optimized = np.array([[result.x[0], 0, result.x[2]], [0, result.x[1], result.x[3]], [0, 0, 1]])
+    K_optimized = np.array([[result.x[0], 0, u0], [0, result.x[1], v0], [0, 0, 1]])
 
     return K_optimized
 
@@ -625,7 +602,7 @@ for camera_pair, F_matrix in fundamental_matrices.items():
 
 all_best_results = {}
 # how many times to run the optimization
-iterations = 30
+iterations = 10
 
 # dictionary to store the optimization results
 optimization_results = {}
@@ -691,7 +668,7 @@ for j in range(len(Ks)):
          # optimize the intrinsic parameters
 
         points_3d_optimized = triangulate_points(paired_keypoints, P1, P2) # update the 3D points
-        OPT_K_optimized = optimize_intrinsic_parameters(points_3d_optimized, other_cameras_keypoints[j + 1], OPT_K, R_optimized, t_optimized, tolerance_list) # optimize the intrinsic parameters
+        OPT_K_optimized = optimize_intrinsic_parameters(points_3d_optimized, other_cameras_keypoints[j + 1], OPT_K, R_optimized, t_optimized, tolerance_list, u0, v0) # optimize the intrinsic parameters
         OPT_K = OPT_K_optimized # update the intrinsic parameters
 
         P2 = cam_create_projection_matrix(OPT_K, R_optimized, t_optimized) # update the projection matrix
@@ -767,7 +744,7 @@ def vectorize_params_for_extrinsic_loss(points_3d, points_2d):
     return np.array(u_detected_list), np.array(v_detected_list), np.array(point_3d_homogeneous_list)
 
 
-def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point_3d_homogeneous):
+def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point_3d_homogeneous, u0, v0):
     """
     Computes the loss for the intrinsic parameters optimization.
 
@@ -781,7 +758,7 @@ def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point
     Returns:
     - The mean loss for the intrinsic parameters optimization.
     """
-    f_x, f_y, u0, v0 = ext_K[0, 0], ext_K[1, 1], ext_K[0, 2], ext_K[1, 2]
+    f_x, f_y = ext_K[0, 0], ext_K[1, 1]
     dx = 1.0  # Pixel scaling factor dx (assumed to be 1 if not known)
     dy = 1.0  # Pixel scaling factor dy (assumed to be 1 if not known)
     obj_t = x
@@ -807,7 +784,7 @@ def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point
     return mean_loss
 
 
-def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext_R, ext_t, tolerance_list):
+def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext_R, ext_t, tolerance_list, u0, v0):
     """
     Optimizes the extrinsic parameters using the given 3D points and detected keypoints.
 
@@ -823,12 +800,12 @@ def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext
     """
     # Create the initial guess for the extrinsic parameters (|T|) using the t vector magnitude
     # x0 = np.array([np.linalg.norm(ext_t)])
-    x0 = ext_t
+    x0 = ext_t.flatten()
     print(f"Initial x0: {x0}")
     u_detected, v_detected, point_3d_homogeneous= vectorize_params_for_extrinsic_loss(points_3d, other_cameras_keypoints)
     
     # Optimize the extrinsic parameters using the least squares method
-    result = least_squares(compute_extrinsics_optimization_loss, x0, args=(ext_K, u_detected, v_detected, point_3d_homogeneous), x_scale='jac', verbose=1, method='trf', loss= 'huber', diff_step=tolerance_list['diff_step'], tr_solver='lsmr', ftol=tolerance_list['ftol'], max_nfev=tolerance_list['max_nfev'], xtol=tolerance_list['xtol'], gtol=tolerance_list['gtol'])
+    result = least_squares(compute_extrinsics_optimization_loss, x0, args=(ext_K, u_detected, v_detected, point_3d_homogeneous, u0, v0), x_scale='jac', verbose=1, method='trf', loss= 'huber', diff_step=tolerance_list['diff_step'], tr_solver='lsmr', ftol=tolerance_list['ftol'], max_nfev=tolerance_list['max_nfev'], xtol=tolerance_list['xtol'], gtol=tolerance_list['gtol'])
 
 
 
@@ -855,7 +832,7 @@ def update_tolerance(n, tolerance_list):
     return tolerance_list
 
 
-N = 50 # how many times to run the optimization
+N = 20 # how many times to run the optimization
 
 # tolerance_list = {
 #     'ftol': 1e-6,
@@ -873,7 +850,7 @@ tolerance_list = {
     'diff_step': 1e-2
 }
 for i, K in enumerate(Ks):
-    if i == 0 or i == 1:  # skip the reference camera
+    if i == 0:  # skip the reference camera
         continue
 
     camera_key = f"Camera1_1-{i+1}" # e.g., "Camera1_1-2", "Camera1_1-3", etc.
@@ -908,7 +885,7 @@ for i, K in enumerate(Ks):
 
         # extrinsic parameter optimization
         print(f"before optimization t vector: {ext_t}")
-        optimized_t = optimize_extrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list) # optimize extrinsic parameters
+        optimized_t = optimize_extrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list, u0, v0) # optimize extrinsic parameters
         ext_t = optimized_t # update t vector
         print(f"{n + 1}th optimized t vector: {ext_t}")
 
@@ -918,7 +895,7 @@ for i, K in enumerate(Ks):
 
         # intrinsic parameter optimization
         points_3d = triangulate_points(paired_keypoints_list[i-1], P1, N_P2) # update 3D points after extrinsic optimization
-        ext_K_optimized = optimize_intrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list) # optimize intrinsic parameters
+        ext_K_optimized = optimize_intrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list, u0, v0) # optimize intrinsic parameters
         ext_K = ext_K_optimized # update intrinsic parameters
         print(f"{n + 1}th optimized K matrix: {ext_K}")
 
