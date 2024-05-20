@@ -6,10 +6,10 @@ import random
 import os
 import json
 import pprint
-from keypoints_confidence_multi import extract_paired_keypoints_with_reference
+from keypoints_confidence_multi_v2 import extract_paired_keypoints_with_reference
 from scipy.optimize import least_squares
 from scipy.optimize import minimize
-from scipy.spatial.transform import Rotation as R
+from scipy.spatial.transform import Rotation as RR
 from write_to_toml import write_to_toml
 
 start_time = time.time()
@@ -23,28 +23,37 @@ v0 = image_size[1] / 2  # principal point v0
 
 
 K1 = np.array([
-    [ 1824.6097978600892, 0.0, u0],
-    [ 0.0, 1826.6675222017589, v0],
+    [ 5000.0, 0.0, u0],
+    [ 0.0, 5000.0, v0],
     [ 0.0, 0.0, 1.0]
 ])
 
 K2 = np.array([
-    [ 1824.6097978600892, 0.0, u0],
-    [ 0.0, 1826.6675222017589, v0],
+    [ 5000.0, 0.0, u0],
+    [ 0.0, 5000.0, v0],
     [ 0.0, 0.0, 1.0]
 ])
 
+
 K3 = np.array([
-    [ 1824.6097978600892, 0.0, u0],
-    [ 0.0, 1826.6675222017589, v0],
+    [ 5000.0, 0.0, u0],
+    [ 0.0, 5000.0, v0],
     [ 0.0, 0.0, 1.0]
 ])
 
 K4 = np.array([
-    [ 1824.6097978600892, 0.0, u0],
-    [ 0.0, 1826.6675222017589, v0],
+    [ 5000.0, 0.0, u0],
+    [ 0.0, 5000.0, v0],
     [ 0.0, 0.0, 1.0]
 ])
+
+
+
+# K4 = np.array([
+#     [ 1824.6097978600892, 0.0, u0],
+#     [ 0.0, 1826.6675222017589, v0],
+#     [ 0.0, 0.0, 1.0]
+# ])
 
 Ks = [K1, K2, K3, K4]
 
@@ -54,7 +63,7 @@ Ks = [K1, K2, K3, K4]
 # camera directorie
 # camera_directory = ['N_key_calib/json1','N_key_calib/json2', 'N_key_calib/json3', 'N_key_calib/json4']
 camera_directory = [r'D:\calibration\Calibration_with_keypoints\cal_json1', r'D:\calibration\Calibration_with_keypoints\cal_json2',
-                     r'D:\calibration\Calibration_with_keypoints\cal_json3', r'D:\calibration\Calibration_with_keypoints\cal_json4']
+                    r'D:\calibration\Calibration_with_keypoints\cal_json3', r'D:\calibration\Calibration_with_keypoints\cal_json4']
 confidence_threshold = 0.8 # confidence threshold for keypoints pair extraction
 
 # Call the function to extract paired keypoints
@@ -439,7 +448,7 @@ def compute_intrinsics_optimization_loss(x, u_detected, v_detected, Xc, Yc, Zc, 
         mean_loss = total_loss / valid_keypoints_count
     else:
         mean_loss = 0
-    print(f"mean_loss of intrinsic : {mean_loss}")
+    # print(f"mean_loss of intrinsic : {mean_loss}")
     return mean_loss
 
 def optimize_intrinsic_parameters(points_3d, keypoints_detected, K, R, t, tolerance_list, u0, v0):
@@ -548,7 +557,7 @@ paired_keypoints_list = temp_paired_keypoints_global_list[index_of_best_ref_cam]
 # inliers_per_camera_pair = inliers_pair_list[index_of_best_ref_cam]
 
 print(f"Best reference camera: {final_idx_of_ref_cam}")
-input("Press any key to continue...")
+# input("Press any key to continue...")
 final_camera_Rt = camera_Rt_list[final_idx_of_ref_cam]
 print("Final camera R, t:", final_camera_Rt)
 
@@ -556,18 +565,18 @@ print("Final camera R, t:", final_camera_Rt)
 ###################### Intrinsic Optimization ############################
 
 all_best_results = {}
-iterations = 1
+iterations = 30
 optimization_results = {}
 Fix_K = Ks[final_idx_of_ref_cam]
 inliers_pair_list = []
 inlier2_list = []
 
 tolerance_list = {
-    'ftol': 1e-3,
-    'xtol': 1e-4,
-    'gtol': 1e-3,
-    'max_nfev': 50,
-    'diff_step': 1e-3
+    'ftol': 1e-8,
+    'xtol': 1e-8,
+    'gtol': 1e-8,
+    'max_nfev': 150,
+    'diff_step': 1e-8
 }
 
 temp_idx = -1
@@ -683,36 +692,53 @@ def vectorize_params_for_extrinsic_loss(points_3d, points_2d):
 
 
 def rotation_matrix_to_quaternion(rotation_matrix):
-    r = R.from_matrix(rotation_matrix)
+    r = RR.from_matrix(np.array(rotation_matrix)) 
     quaternion = r.as_quat()
     return quaternion
 
 def quaternion_to_rotation_matrix(quaternion):
-    r = R.from_quat(quaternion)
+    r = RR.from_quat(np.array(quaternion)) 
     rotation_matrix = r.as_matrix()
     return rotation_matrix
 
+def optimize_extrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list):
+    ext_R = np.array(ext_R)
+    initial_quaternion = rotation_matrix_to_quaternion(ext_R)
+    initial_params = np.hstack((initial_quaternion, ext_t.flatten()))
+
+    u_detected, v_detected, point_3d_homogeneous = vectorize_params_for_extrinsic_loss(points_3d, other_keypoints_detected)
+    
+    result = least_squares(
+        compute_extrinsics_optimization_loss, 
+        initial_params, 
+        args=(ext_K, u_detected, v_detected, point_3d_homogeneous), 
+        x_scale='jac', 
+        verbose=1, 
+        method='trf', 
+        loss='huber', 
+        diff_step=tolerance_list['diff_step'], 
+        tr_solver='lsmr', 
+        ftol=tolerance_list['ftol'], 
+        max_nfev=tolerance_list['max_nfev'], 
+        xtol=tolerance_list['xtol'], 
+        gtol=tolerance_list['gtol']
+    )
+
+    optimized_params = result.x
+    optimized_quaternion = optimized_params[:4]
+    optimized_t = optimized_params[4:]
+
+    optimized_R = quaternion_to_rotation_matrix(optimized_quaternion)
+
+    return optimized_R, optimized_t.reshape(3, 1)
+
+
 def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point_3d_homogeneous):
-    """
-    Computes the loss for the intrinsic parameters optimization.
-
-    Args:
-    - x: Extrinsic parameters to optimize (quaternion + translation).
-    - points_3d: List of 3D points (triangulated human body joints).
-    - keypoints_detected: Original detected 2D keypoints.
-    - ext_K: Intrinsic parameters matrix.
-
-    Returns:
-    - The mean loss for the intrinsic parameters optimization.
-    """
-    # 쿼터니언과 번역 벡터 추출
     quaternion = x[:4]
     t = x[4:].reshape(3, 1)
     
-    # 쿼터니언을 회전 행렬로 변환
     R_optimized = quaternion_to_rotation_matrix(quaternion)
     
-    # 변환 행렬 생성
     transformation_matrix = np.hstack((R_optimized, t))
     transformation_matrix = np.vstack((transformation_matrix, [0, 0, 0, 1]))
 
@@ -721,8 +747,8 @@ def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point
     valid_keypoints_count = Xc.shape[0]
     
     f_x, f_y, u0, v0 = ext_K[0, 0], ext_K[1, 1], ext_K[0, 2], ext_K[1, 2]
-    dx = 1.0  # Pixel scaling factor dx (assumed to be 1 if not known)
-    dy = 1.0  # Pixel scaling factor dy (assumed to be 1 if not known)
+    dx = 1.0
+    dy = 1.0
 
     loss = np.abs(Zc * u_detected - ((f_x / dx) * Xc + u0 * Zc)) + np.abs(Zc * v_detected - ((f_y / dy) * Yc + v0 * Zc))
     total_loss = np.sum(loss)
@@ -735,37 +761,8 @@ def compute_extrinsics_optimization_loss(x, ext_K, u_detected, v_detected, point
     return mean_loss
 
 
-def optimize_extrinsic_parameters(points_3d, other_cameras_keypoints, ext_K, ext_R, ext_t, tolerance_list):
-    """
-    Optimizes the extrinsic parameters using the given 3D points and detected keypoints.
 
-    Args:
-    - points_3d: List of 3D points (triangulated human body joints).
-    - other_cameras_keypoints: Original detected 2D keypoints for the other cameras.
-    - ext_K: Intrinsic parameters matrix.
-    - ext_R: Rotation matrix.
-    - ext_t: Translation vector.
 
-    Returns:
-    - The optimized quaternion and t vector.
-    """
-    # 회전 행렬을 쿼터니언으로 변환
-    initial_quaternion = rotation_matrix_to_quaternion(ext_R)
-    initial_params = np.hstack((initial_quaternion, ext_t.flatten()))
-
-    u_detected, v_detected, point_3d_homogeneous = vectorize_params_for_extrinsic_loss(points_3d, other_cameras_keypoints)
-    
-    # Optimize the extrinsic parameters using the least squares method
-    result = least_squares(compute_extrinsics_optimization_loss, initial_params, args=(ext_K, u_detected, v_detected, point_3d_homogeneous), x_scale='jac', verbose=1, method='trf', loss='huber', diff_step=tolerance_list['diff_step'], tr_solver='lsmr', ftol=tolerance_list['ftol'], max_nfev=tolerance_list['max_nfev'], xtol=tolerance_list['xtol'], gtol=tolerance_list['gtol'])
-
-    optimized_params = result.x
-    optimized_quaternion = optimized_params[:4]
-    optimized_t = optimized_params[4:]
-
-    # 쿼터니언을 회전 행렬로 변환
-    optimized_R = quaternion_to_rotation_matrix(optimized_quaternion)
-
-    return optimized_R, optimized_t.reshape(3, 1)
 
 
 ########################################
@@ -782,7 +779,8 @@ def update_tolerance(n, tolerance_list):
     return tolerance_list
 
 
-N = 30 # how many times to run the optimization
+# Multi-camera calibration 설정 및 실행
+N = 30  # 최적화 반복 횟수
 
 tolerance_list = {
     'ftol': 1e-2,
@@ -794,71 +792,56 @@ tolerance_list = {
 
 temp_idx = -1
 for i, K in enumerate(Ks):
-    if i == final_idx_of_ref_cam:  # skip the reference camera
+    if i == final_idx_of_ref_cam:  # 기준 카메라는 건너뜀
         continue
     temp_idx += 1
-    # if i == 0 or i == 1:
-    #     inliers_pair = inliers_pair_list[0]
-    # else:
-
     inliers_pair = inliers_pair_list[temp_idx]
     other_keypoints_detected = inlier2_list[temp_idx]
 
     print(f"calibrating camera {i}...")
 
-    # import the best results for each camera pair
     ext_K = all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['K2'] 
-    ext_R = all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['R'] # fixed R matrix
+    ext_R = all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['R'] 
     ext_t = all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['t']
-    int_K_best  = all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['K1']
-    ref_t = np.array([[0], [0], [0]]) # reference camera t vector
+    int_K_best = all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['K1']
+    ref_t = np.array([[0], [0], [0]])
 
-
-    # projection matrix
     P1 = cam_create_projection_matrix(Ks[final_idx_of_ref_cam], np.eye(3), ref_t)
     P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t)
 
-    # triangulate points
-    points_3d = triangulate_points(inliers_pair, P1, P2) # initial 3D points
+    points_3d = triangulate_points(inliers_pair, P1, P2)
     before_optimization_error = compute_reprojection_error(points_3d, inliers_pair, P1, P2)
     print(f"camera {i} before optimization error: {before_optimization_error}")
 
-    # Entrinsic and intrinsic parameter joint optimization
     for n in range(N):
-        # Update the tolerance values
         tolerance_list = update_tolerance(n, tolerance_list)
 
-        # extrinsic parameter optimization
-        print(f"before optimization t vector: {ext_t}")
-        optimized_R, optimized_t = optimize_extrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list) # optimize extrinsic parameters
-        ext_R, ext_t = optimized_R, optimized_t # update R and t vectors
+        optimized_R, optimized_t = optimize_extrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list)
+        ext_R, ext_t = optimized_R, optimized_t
         print(f"{n + 1}th optimized R matrix: {ext_R}")
         print(f"{n + 1}th optimized t vector: {ext_t}")
 
-        N_P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t) # update projection matrix
-        ex_reprojection_error = compute_reprojection_error(points_3d, inliers_pair, P1, N_P2) # calculate the mean reprojection error
+        N_P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t)
+        ex_reprojection_error = compute_reprojection_error(points_3d, inliers_pair, P1, N_P2)
         print(f"{n + 1}th error in extrinsic optimization = {ex_reprojection_error}")
 
-        # intrinsic parameter optimization
-        points_3d = triangulate_points(inliers_pair, P1, N_P2) # update 3D points after extrinsic optimization
-        ext_K_optimized = optimize_intrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list, u0, v0) # optimize intrinsic parameters
-        ext_K = ext_K_optimized # update intrinsic parameters
+        points_3d = triangulate_points(inliers_pair, P1, N_P2)
+        ext_K_optimized = optimize_intrinsic_parameters(points_3d, other_keypoints_detected, ext_K, ext_R, ext_t, tolerance_list, u0, v0)
+        ext_K = ext_K_optimized
         print(f"{n + 1}th optimized K matrix: {ext_K}")
 
-        N_P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t) # update projection matrix
-        in_reprojection_error = compute_reprojection_error(points_3d, inliers_pair, P1, N_P2) # calculate the mean reprojection error
+        N_P2 = cam_create_projection_matrix(ext_K, ext_R, ext_t)
+        in_reprojection_error = compute_reprojection_error(points_3d, inliers_pair, P1, N_P2)
         print(f"{n + 1}th error in intrinsic optimization = {in_reprojection_error}")
-        points_3d = triangulate_points(inliers_pair, P1, N_P2) # update 3D points after intrinsic optimization
+        points_3d = triangulate_points(inliers_pair, P1, N_P2)
 
-    # save result after optimization
     all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['t'] = ext_t
+    all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['R'] = ext_R
     all_best_results[f"Camera{final_idx_of_ref_cam}_{i}"]['K2'] = ext_K
 
-    # ext_R matrix to rod vector
     ext_R_rod, _ = cv2.Rodrigues(ext_R)
     print(f"camera {i} R : {ext_R_rod}")
 
-# print optimized results
 for pair_key, results in all_best_results.items():
     print(f"Best results for {pair_key}:")
     print(f"- K1: {results['K1']}")
@@ -870,4 +853,4 @@ end_time = time.time()
 elapsed_time = end_time - start_time
 print(f"Calibration took {elapsed_time} seconds to finish.")
 
-write_to_toml(all_best_results,[0.0, 0.0, 0.0], image_size)
+write_to_toml(all_best_results, image_size)

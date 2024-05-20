@@ -50,8 +50,8 @@ total_keypoints_for_all_camera = 0
 # camera directorie
 # ref_cam_dir = '/json3' # reference camera directory
 # other_cam_dirs = ['pose/json2','pose/json1'] # other camera directories
-camera_directory = [r'C:\Users\82102\Downloads\TalkFile_Calibration_with_keypoints.zip\cal_json1', r'C:\Users\82102\Downloads\TalkFile_Calibration_with_keypoints.zip\cal_json2', 
-                    r'C:\Users\82102\Downloads\TalkFile_Calibration_with_keypoints.zip\cal_json3', r'C:\Users\82102\Downloads\TalkFile_Calibration_with_keypoints.zip\cal_json4']
+camera_directory = [r'D:\calibration\Calibration_with_keypoints\cal_json1', r'D:\calibration\Calibration_with_keypoints\cal_json2',
+                    r'D:\calibration\Calibration_with_keypoints\cal_json3', r'D:\calibration\Calibration_with_keypoints\cal_json4']
 confidence_threshold = 0.8 # confidence threshold for keypoints pair extraction
 
 # Call the function to extract paired keypoints
