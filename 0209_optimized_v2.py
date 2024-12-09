@@ -205,7 +205,6 @@ def recover_pose_from_essential_matrix(E, points1, points2, K):
     _, R, t, mask = cv2.recoverPose(E, points1, points2, K, None)
     return R, t, mask
 
-
 def cam_create_projection_matrix(K, R, t):
     """
     Creates the camera projection matrix.
@@ -220,7 +219,6 @@ def cam_create_projection_matrix(K, R, t):
     """
     RT = np.hstack([R, t.reshape(-1, 1)])
     return K @ RT
-
 
 def triangulate_points(paired_keypoints_list, P1, P2):
     """
@@ -252,8 +250,6 @@ def triangulate_points(paired_keypoints_list, P1, P2):
         points_3d.append(points_3d_frame)
 
     return points_3d
-
-
 
 # Visualize the 3D points
 def plot_3d_points(points_3d):
